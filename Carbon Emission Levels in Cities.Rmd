@@ -1,0 +1,1420 @@
+# Team Members
+
+## Kevin Gandhi - 20BCE1377
+## Nilashma Saha - 20BCE1514
+## Bacham Sai Venkata Teja - 20BCE1551
+
+```{r warning=FALSE, message=FALSE, echo = TRUE}
+
+library(rgeos)
+library(tidyverse)
+library(sp)
+library(sf)
+library(dplyr)
+library(leaflet)
+library(RColorBrewer)
+library(knitr)
+library(kableExtra)
+library(plotly)
+```
+
+```{r warning=FALSE, message=FALSE, echo = TRUE}
+# get city disclosing data
+
+Cities_Disclosing_2018 = read.csv("Cities/Cities Disclosing/2018_Cities_Disclosing_to_CDP.csv",
+                                  fileEncoding = "UTF-8")
+Cities_Disclosing_2019 = read.csv("Cities/Cities Disclosing/2019_Cities_Disclosing_to_CDP.csv",
+                                  fileEncoding = "UTF-8")
+Cities_Disclosing_2020 = read.csv("Cities/Cities Disclosing/2020_Cities_Disclosing_to_CDP.csv",
+                                  fileEncoding = "UTF-8")
+# merge all years
+Cities_Disclosing = rbind(Cities_Disclosing_2018, Cities_Disclosing_2019, Cities_Disclosing_2020)
+
+
+# get city responses data
+Cities_Responses_2018 = read.csv("Cities/Cities Responses/2018_Full_Cities_Dataset.csv",
+                                 na.strings="")
+Cities_Responses_2019 = read.csv("Cities/Cities Responses/2019_Full_Cities_Dataset.csv",
+                                 na.strings="")
+Cities_Responses_2020 = read.csv("Cities/Cities Responses/2020_Full_Cities_Dataset.csv",
+                                 na.strings="")
+# merge answers
+Cities_Responses = rbind(Cities_Responses_2018,Cities_Responses_2019,Cities_Responses_2020)
+
+
+```
+
+```{r warning=FALSE, message=FALSE, echo = TRUE}
+# Analysis parameters
+Year.Selected = 2020
+
+# create Cities_Responses_KPI containing cities informaion. We wil fill this dataset during the analysis with computed KPIs
+Cities_Responses_KPI = Cities_Disclosing %>% 
+  filter(Year.Reported.to.CDP == Year.Selected) %>% 
+  select(Year.Reported.to.CDP, Account.Number,Organization,City,Country,CDP.Region,First.Time.Discloser,Population,City.Location)
+```
+
+# City Responses Analysis
+
+## Governance & Data Management
+
+- **Sustainability goals in master planning**: *73%* of cities indicate that they incorporate sustainability goals and targets into the master planning for the city.
+
+```{r warning=FALSE, message=FALSE, echo = TRUE}
+
+# Selecting responses
+Cities_Responses_Cleaned =  Cities_Responses %>% 
+  filter(Year.Reported.to.CDP == Year.Selected) %>% 
+  filter(Question.Number == "1.0") %>% 
+  drop_na(Response.Answer) %>% 
+  select(Account.Number, Sustainability.Targets.Master.Planning = Response.Answer)
+
+# joining with Cities_Responses_KPI
+Cities_Responses_KPI = left_join(Cities_Responses_KPI, Cities_Responses_Cleaned, by = "Account.Number")
+
+# Aggregate by answer
+Cities_Responses_Cleaned %>% 
+  group_by(Sustainability.Targets.Master.Planning) %>% 
+  summarise(Nb.Organizations = n_distinct(Account.Number)) %>% 
+  mutate(Percent.Organizations = round(Nb.Organizations/sum(Nb.Organizations) * 100,2))%>% 
+  arrange(desc(Percent.Organizations)) %>% 
+  kable() %>%
+  kable_styling(bootstrap_options = c("striped", "hover"), full_width = F, font_size = 13)
+```
+
+
+## Climate Hazards and Vulnerability
+
+
+- **Risk & Vulnerability assessment**: *68%* of cities indicate that they have undertaken climate change risk/vulerability assessment
+
+```{r warning=FALSE, message=FALSE, echo = TRUE}
+# Selecting responses
+Cities_Responses_Cleaned = Cities_Responses %>% 
+  filter(Year.Reported.to.CDP == Year.Selected) %>% 
+  filter(Question.Number == "2.0") %>% 
+  drop_na(Response.Answer) %>% 
+  mutate_at("Response.Answer", as.factor) %>% 
+  select(Account.Number, Risk.Assessment.Actions = Response.Answer)
+
+# joining with Cities_Responses_KPI
+Cities_Responses_KPI = left_join(Cities_Responses_KPI, Cities_Responses_Cleaned, by = "Account.Number")
+
+# Aggregate by answer
+City_Responses_Answer_KPI = Cities_Responses_Cleaned %>% 
+  group_by(Risk.Assessment.Actions) %>% 
+  summarise(Nb.Organizations = n_distinct(Account.Number)) %>% 
+  mutate(Percent.Organizations = round(Nb.Organizations/sum(Nb.Organizations) * 100,2))%>% 
+  arrange(desc(Percent.Organizations)) %>% 
+  kable() %>%
+  kable_styling(bootstrap_options = c("striped", "hover"), full_width = F, font_size = 13)
+```
+
+- **Climate hazards**: The top 3 most significant climate hzards are: *Flood and sea level rise*, *Extreme hot temperature*, and *Extreme Precipitation*
+
+```{r warning=FALSE, message=FALSE, echo = TRUE}
+Cities_Responses %>% 
+  filter(Question.Number == "2.1",
+         Year.Reported.to.CDP == Year.Selected) %>% 
+  arrange(Account.Number, Column.Number, Row.Number) %>% 
+  select(year = Year.Reported.to.CDP, Question.Number, Account.Number,Column.Number, Column.Name,Response.Answer) %>% 
+  filter(Column.Name == "Climate Hazards") %>% 
+  separate(Response.Answer,c("hazard_type", "hazard"), sep = " > ") %>% 
+  drop_na(hazard_type) %>% 
+  group_by(hazard_type) %>%
+  summarise(nb = n()) %>% 
+  arrange(desc(nb)) %>% 
+  plot_ly() %>% 
+  add_trace(y = ~factor(hazard_type), 
+            x = ~nb, 
+            marker = list(color = "gray"),
+            type = "bar",
+            orientation = "h")  %>% 
+  layout(title = "Most Significant climate hazards faced by cities",
+         yaxis = list(title = 'Climate hazards', categoryorder = "array",categoryarray = ~nb),
+         xaxis = list(title = 'Number of cities impacted')
+  )
+```
+
+
+- **Hazards impacts**: Almost 75% of cited climate hazards have significantly impacted cities before the disclosing year.
+
+```{r warning=FALSE, message=FALSE, echo = TRUE}
+# Aggregate by answer
+Cities_Responses %>% 
+  filter(Question.Number == "2.1",
+         Year.Reported.to.CDP == Year.Selected) %>% 
+  arrange(Account.Number, Column.Number, Row.Number) %>% 
+  select(year = Year.Reported.to.CDP, Question.Number, Account.Number,Column.Number, Column.Name,Response.Answer) %>% 
+  filter(Column.Number == 2)  %>% 
+  drop_na(Response.Answer) %>% 
+  group_by(Past.Hazard.Impact = Response.Answer) %>%
+  summarise(nb = n()) %>% 
+  mutate(Percent = round(nb/sum(nb) * 100,2)) %>% 
+  arrange(desc(nb)) %>% 
+  kable() %>%
+  kable_styling(bootstrap_options = c("striped", "hover"), full_width = F, font_size = 13)
+```
+
+- **Exposure: Number of Hazards** The average number of hazards to which cities are exposed is 5. Cities of Amstrong (Argentina), Milano (Italy) and KwaDukuza (South Africa) are the most exposed to climate hzards , with more that 35 cimate hazards disclosed.
+
+```{r warning=FALSE, message=FALSE, echo = TRUE}
+# select responses
+Cities_Responses_Cleaned = Cities_Responses %>% 
+  filter(Question.Number == "2.1",
+         Year.Reported.to.CDP == Year.Selected) %>% 
+  filter(Column.Name == "Climate Hazards") %>% 
+  separate(Response.Answer,c("hazard_type", "hazard"), sep = " > ") %>% 
+  drop_na(hazard_type) %>% 
+  group_by(Account.Number) %>%
+  summarise(Nb.Hazards.Type = n())
+
+
+# plot
+fig <- plot_ly() %>% 
+  add_histogram(data = Cities_Responses_Cleaned, 
+            x = ~Nb.Hazards.Type, 
+            marker = list(color = "gray")) %>% 
+  layout(bargap=0.1) %>% 
+  add_segments(x=mean(Cities_Responses_Cleaned$Nb.Hazards.Type), y=0, 
+               xend=mean(Cities_Responses_Cleaned$Nb.Hazards.Type), yend=100, 
+               line=list(color="red", width = 3)) %>% 
+  layout(showlegend = FALSE)
+
+fig
+
+# joining with Cities_Responses_KPI
+Cities_Responses_KPI = left_join(Cities_Responses_KPI, Cities_Responses_Cleaned, by = "Account.Number")
+
+# Table
+Cities_Responses_KPI %>% 
+  select(Organization, City, Country, CDP.Region, Nb.Hazards.Type) %>% 
+  arrange(desc(Nb.Hazards.Type)) %>% 
+  top_n(5) %>% 
+  kable() %>%
+  kable_styling(bootstrap_options = c("striped", "hover"), full_width = F, font_size = 13)
+
+```
+
+- **Exposure: Hazard Magnitude & Probability** More than 50% of Hazards are caracterized with 'High' and 'Medium High' magnitude and probability of occuring.
+
+```{r warning=FALSE, message=FALSE, echo = TRUE}
+Cities_Responses %>% 
+  filter(Question.Number == "2.1",
+         Year.Reported.to.CDP == Year.Selected,
+         Column.Number %in% c(3,4)) %>% 
+  select(Account.Number,Column.Name,Row.Number,Response.Answer) %>% 
+  drop_na(Response.Answer) %>% 
+  group_by(Column.Name, Response.Answer) %>% 
+  summarise(nb = n()) %>% 
+  mutate(Percent = round(nb/sum(nb) * 100,2)) %>% 
+  mutate_at("Response.Answer", as.character) %>% 
+  plot_ly() %>% 
+  add_trace(x = ~Response.Answer, 
+            y = ~Percent, 
+            color = ~factor(Column.Name),
+            colors = c("blue","grey"),
+            type = "bar")  %>% 
+  layout(title = "Pribability & Magnitude of Hazards",
+         yaxis = list(title = 'Percent of answers',range = c(0, 35)), 
+         xaxis = list(categoryorder = "array",
+                      categoryarray = c("High", 
+                                        "Medium High",
+                                        "Medium",
+                                        "Medium Low",
+                                        "Low",
+                                        "Do not know",
+                                        "Does not currently impact the city"), 
+                      title = "Levels"),
+         barmode = 'group')
+  
+```
+
+- **Hazards Exposure score**: We propose here an exposure score by combining hazards' probabilities and magnitude:
+
+  - Recoding values: Converting the categorical values into numerical values $High: 5, Medium High: 4, Medium: 3, Medium Low:  2, Low: 1, Does not currently impact the city: 0$
+  - Applying a weighted sum of hazards magnitude $M_{i}$ and probability $P_{i}$ values. For example, a city $C_1$ reported 3 hazards $H_{1}$, $H_{2}$, and $H_{3}$ wth respectively $[M_{1}, P_{1}]$,  $[M_{2}, P_{2}]$, and $[M_{3}, P_{3}]$. Its  exposure score is calculated folowing this formula: 
+  
+  $Exposure_{city} =\sum_{x = i}^{nb_{hazards}} Magnitude_{i} * Probability_{i}$
+  
+  - Standardizing the score to generate values ranging from 0 to 1: $ExposureScore_{city} = \frac {ExposureScore_{city} - min(Exposure_{city})}{max(Exposure_{city}) - min(Exposure_{city})}$
+
+Based on this indicator, the Top 3 most exposed cities are *City of Urbana* (in USA), city of KwaDukuza (in South Africa), and Rio de Janeiro (in Brazil).
+
+
+```{r warning=FALSE, message=FALSE, echo = TRUE}
+# select responses to the specified question
+Cities_Responses_Cleaned = Cities_Responses %>% 
+  filter(Question.Number == "2.1",
+         Year.Reported.to.CDP == Year.Selected,
+         Column.Number %in% c(3,4)) %>% 
+  select(Account.Number,Column.Name,Row.Number,Response.Answer) %>% 
+  drop_na(Response.Answer) 
+
+
+# reshape data 
+Cities_Responses_Cleaned = reshape(Cities_Responses_Cleaned, 
+                                         idvar = c("Account.Number","Row.Number"), 
+                                         timevar = "Column.Name", 
+                                         direction = "wide")
+# rename columns
+names(Cities_Responses_Cleaned) = c("Account.Number","Row.Number","Hazard.Magnitude","Hazard.Probability")
+
+
+# agregate dat by answer
+City_Responses_Answer_KPI = Cities_Responses_Cleaned %>% 
+  drop_na(Hazard.Magnitude) %>% 
+  drop_na(Hazard.Probability) %>%
+  mutate(Hazard.Magnitude.Level = fct_collapse(Hazard.Magnitude,
+                                               "5" = c("High"),
+                                               "4" = c("Medium High"),
+                                               "3" = c("Medium"),
+                                               "2" = c("Medium Low"),
+                                               "1" = c("Low"),
+                                               "0" = c("Does not currently impact the city","Do not know"))) %>% 
+  mutate(Hazard.Probability.Level = fct_collapse(Hazard.Probability,
+                                                 "5" = c("High"),
+                                                 "4" = c("Medium High"),
+                                                 "3" = c("Medium"),
+                                                 "2" = c("Medium Low"),
+                                                 "1" = c("Low"),
+                                                 "0" = c("Does not currently impact the city","Do not know"))) %>% 
+  mutate_at(c("Hazard.Magnitude.Level","Hazard.Probability.Level"), as.character) %>% 
+  mutate_at(c("Hazard.Magnitude.Level","Hazard.Probability.Level"), as.numeric) %>% 
+  group_by(Account.Number)%>%
+  mutate(Hazards.Exposure.Level=(sum(Hazard.Magnitude.Level*Hazard.Probability.Level))) %>% 
+  distinct(Account.Number, .keep_all = TRUE)  %>% 
+  select(Account.Number, Hazards.Exposure.Level) 
+
+# joining with Cities_Responses_KPI
+Cities_Responses_KPI = left_join(Cities_Responses_KPI, 
+                                 City_Responses_Answer_KPI[,c("Account.Number","Hazards.Exposure.Level")], 
+                                 by = "Account.Number")
+
+# Table
+Cities_Responses_KPI %>% 
+  select(Organization, City, Country, CDP.Region, Hazards.Exposure.Level) %>% 
+  arrange(desc(Hazards.Exposure.Level)) %>% 
+  top_n(5) %>% 
+  kable() %>%
+  kable_styling(c("striped", "hover")) %>% 
+  kable_styling(bootstrap_options = c("striped", "hover"), full_width = F, font_size = 13)
+```
+
+- **Adaptation challenges:** Cities are asked to identify and describe factors that most greatly affect their ability to adapt to climate change. A list of factors is provided including various elements: Access to basic services, Access to healthcare, Access to education, Public health... We grouped these factors into 8 main sectors:
+
+- Economic: Access to basic service, Cost of living, Poverty, Unemployment, Economic health, economic diversity, and Budgetary capacity.
+- Health :Access to healthcare and Public health
+- Education : Access to education
+- Habitat : Housing
+- Infrastructure" : Rapid urbanization, Infrastructure conditions / maintenance, and Infrastructure capacity
+- Social : Inequality and Migration
+- Environment: Resource availability, Environmental conditions
+- Governance: Safety and security, Political stability, Political engagement / transparency, Government capacity, Community engagement, Land use planning, Access to quality / relevant data
+
+In The figure below, we observe that the main challenging factors are related to economic, infrastructure and governance issues.
+
+```{r warning=FALSE, message=FALSE, echo = TRUE}
+Cities_Responses_Cleaned = Cities_Responses %>% 
+  filter(Question.Number == "2.2",
+         Year.Reported.to.CDP == Year.Selected,
+         Column.Number %in% c(1,2, 3)) %>% 
+  select(Account.Number, Column.Name, Response.Answer, Row.Number)
+
+
+# reshape data 
+Cities_Responses_Cleaned = reshape(Cities_Responses_Cleaned, 
+                                   idvar = c("Account.Number","Row.Number"), 
+                                   timevar = "Column.Name", 
+                                   direction = "wide")
+# rename columns
+names(Cities_Responses_Cleaned) = c("Account.Number","Row.Number","Adaptation.Factors.Impact","Level","Adaptation.Factors")
+
+# Responses recoding
+Cities_Responses_Cleaned = Cities_Responses_Cleaned %>% 
+  filter(Adaptation.Factors.Impact == "Challenges",
+         Level == "Significantly challenges") %>% 
+  mutate(Adaptation.Factors.Grouped = fct_collapse(Adaptation.Factors,
+                                                   "Adaptation.Challenges.Economic" = c("Access to basic service","Cost of living",
+                                                                                        "Poverty","Unemployment","Economic health",
+                                                                                        "Economic diversity","Budgetary capacity"),
+                                                   "Adaptation.Challenges.Health" = c("Access to healthcare","Public health"),
+                                                   "Adaptation.Challenges.Education" = c("Access to education"),
+                                                   "Adaptation.Challenges.Habitat" = c("Housing"),
+                                                   "Adaptation.Challenges.Infrastructure" = c("Rapid urbanization",
+                                                                                              "Infrastructure conditions / maintenance","Infrastructure capacity"),
+                                                   "Adaptation.Challenges.Social" = c("Inequality","Migration"),
+                                                   "Adaptation.Challenges.Environment" = c("Resource availability","Environmental conditions"),
+                                                   "Adaptation.Challenges.Governance" = c("Safety and security","Political stability",
+                                                                                          "Political engagement / transparency", "Government capacity",
+                                                                                          "Community engagement","Land use planning","Access to quality / relevant data"))) %>% 
+  filter(Adaptation.Factors.Grouped %in% c("Adaptation.Challenges.Economic","Adaptation.Challenges.Health",
+                                           "Adaptation.Challenges.Education","Adaptation.Challenges.Infrastructure",
+                                           "Adaptation.Challenges.Social","Adaptation.Challenges.Environment",
+                                           "Adaptation.Challenges.Governance")) %>% 
+  # counring factors by city
+  group_by(Account.Number,Adaptation.Factors.Grouped) %>% 
+  summarise(Adaptation.Challenges.Nb=n()) %>% 
+  select(Account.Number, Adaptation.Factors.Grouped, Adaptation.Challenges.Nb)
+
+# plot most significant adaptation challenges
+
+Cities_Responses_Cleaned %>% 
+  group_by(Adaptation.Factors.Grouped)%>%
+  summarise(Nb.Organizaton = sum(Adaptation.Challenges.Nb))  %>% 
+  arrange(desc(Nb.Organizaton)) %>% 
+  plot_ly() %>% 
+  add_trace(y = ~factor(Adaptation.Factors.Grouped), 
+            x = ~Nb.Organizaton, 
+            marker = list(color = "gray"),
+            type = "bar",
+            orientation = "h")  %>% 
+  layout(title = "Most Significant Adaptation challenges",
+         yaxis = list(title = '', categoryorder = "array",categoryarray = ~Nb.Organizaton),
+         xaxis = list(title = 'Number of cities faced to challenges')
+  )
+
+# reshaping data
+Cities_Responses_Cleaned  = Cities_Responses_Cleaned %>% 
+  pivot_wider(names_from = Adaptation.Factors.Grouped, values_from = Adaptation.Challenges.Nb) %>% 
+  mutate_at(c("Adaptation.Challenges.Economic","Adaptation.Challenges.Health",
+              "Adaptation.Challenges.Education","Adaptation.Challenges.Infrastructure",
+              "Adaptation.Challenges.Social","Adaptation.Challenges.Environment",
+              "Adaptation.Challenges.Governance"), ~replace_na(., 0)) %>% 
+  mutate(Adaptation.Challenges.Level = sum(Adaptation.Challenges.Economic,Adaptation.Challenges.Health,
+                                           Adaptation.Challenges.Education,Adaptation.Challenges.Infrastructure,
+                                           Adaptation.Challenges.Social,Adaptation.Challenges.Environment,
+                                           Adaptation.Challenges.Governance)) 
+
+
+# joining with Cities_Responses_KPI
+Cities_Responses_KPI = left_join(Cities_Responses_KPI, 
+                                 Cities_Responses_Cleaned,
+                                 by = "Account.Number")
+```
+
+- **Risk health system:** 65% of cities reportes that their health system is facnig risks associated with climate change.
+
+```{r warning=FALSE, message=FALSE, echo = TRUE}
+Cities_Responses_Cleaned = Cities_Responses %>% 
+  filter(Year.Reported.to.CDP == Year.Selected) %>% 
+  filter(Question.Number == "2.3") %>% 
+  drop_na(Response.Answer) %>% 
+  mutate_at("Response.Answer", as.factor) %>% 
+  select(Account.Number, Risk.Health.System = Response.Answer)
+
+
+# joining with Cities_Responses_KPI
+Cities_Responses_KPI = left_join(Cities_Responses_KPI, Cities_Responses_Cleaned, by = "Account.Number")
+
+
+# Aggregate by answer
+Cities_Responses_Cleaned %>% 
+  group_by(Risk.Health.System) %>% 
+  summarise(Nb.Organizations = n_distinct(Account.Number)) %>% 
+  mutate(Percent.Organizations = round(Nb.Organizations/sum(Nb.Organizations) * 100,2))%>% 
+  arrange(desc(Percent.Organizations)) %>% 
+  kable() %>%
+  kable_styling(bootstrap_options = c("striped", "hover"), full_width = F, font_size = 13)
+```
+
+## Adaptation
+
+- **Main Adaptation Actions**: Cities are asked to describe the main actions they are taking to reduce the risk and vulnerability to the identified climate hazards. Among the most implemented actions we can cite: *flood mapping*, *tree planting and/or creation of green space*, *community engagement/education*, and *incorporating climate change into long-term planning documents*.
+
+```{r warning=FALSE, message=FALSE, echo = TRUE}
+Cities_Responses %>% 
+  filter(Question.Number == "3.0",
+         Year.Reported.to.CDP == Year.Selected,
+         Column.Number == 2) %>% 
+  select(Account.Number,Row.Number,Column.Number,Response.Answer) %>% 
+  drop_na(Response.Answer) %>%
+  group_by(Response.Answer) %>%
+  summarise(nb = n()) %>% 
+  mutate(Percent = round(nb/sum(nb) * 100,2)) %>% 
+  arrange(desc(nb)) %>% 
+  top_n(5) %>% 
+  kable() %>%
+  kable_styling(bootstrap_options = c("striped", "hover"), full_width = F, font_size = 13)
+```
+
+- **Number of adaptation actions**: Cities declared in avearge 5 main adaptation actions to climate hazards. However, some cities such as Winsdor (in Canada), Honolulu (in USA), Buenos Aires, Rio de Janiero (Brazil) reported more than 25 adaptation actions. 
+
+```{r warning=FALSE, message=FALSE, echo = TRUE}
+City_Responses_Answer_KPI = Cities_Responses %>% 
+  filter(Question.Number == "3.0",
+         Year.Reported.to.CDP == Year.Selected,
+         Column.Name == "Action") %>% 
+  group_by(Account.Number) %>%
+  summarise(Nb.Adaptation.Actions = n())
+
+# joining with Cities_Responses_KPI
+Cities_Responses_KPI = left_join(Cities_Responses_KPI, 
+                                 City_Responses_Answer_KPI,
+                                 by = "Account.Number")
+
+
+# Table
+Cities_Responses_KPI %>% 
+  select(Organization, City, Country, CDP.Region, Nb.Adaptation.Actions) %>% 
+  arrange(desc(Nb.Adaptation.Actions)) %>% 
+  top_n(5) %>% 
+  kable() %>%
+  kable_styling(bootstrap_options = c("striped", "hover"), full_width = F, font_size = 13)
+```
+
+- **Adaptation plan**: 55% of cities have a published plan that addresses climate change adaptation.
+
+```{r warning=FALSE, message=FALSE, echo = TRUE}
+############################################  Adptation Plan
+
+Cities_Responses_Cleaned = Cities_Responses %>% 
+  filter(Year.Reported.to.CDP == Year.Selected) %>% 
+  filter(Question.Number == "3.2") %>% 
+  drop_na(Response.Answer) %>% 
+  mutate_at("Response.Answer", as.factor) %>% 
+  select(Account.Number, Adaptation.Plan = Response.Answer)
+
+
+# joining with Cities_Responses_KPI
+Cities_Responses_KPI = left_join(Cities_Responses_KPI, Cities_Responses_Cleaned, by = "Account.Number")
+
+
+# Aggregate by answer
+Cities_Responses_Cleaned %>% 
+  group_by(Adaptation.Plan) %>% 
+  summarise(Nb.Organizations = n_distinct(Account.Number)) %>% 
+  mutate(Percent.Organizations = round(Nb.Organizations/sum(Nb.Organizations) * 100,2))%>% 
+  arrange(desc(Percent.Organizations)) %>% 
+  kable() %>%
+  kable_styling(bootstrap_options = c("striped", "hover"), full_width = F, font_size = 13)
+
+```
+
+
+## City Wide Emissions
+
+
+- **City-wide emissions inventory**: 70% of cities reported having a city-wide emissions inventory. 
+
+```{r warning=FALSE, message=FALSE, echo = TRUE}
+Cities_Responses_Cleaned = Cities_Responses %>% 
+  filter(Year.Reported.to.CDP == Year.Selected) %>% 
+  filter(Question.Number == "4.0") %>% 
+  drop_na(Response.Answer) %>% 
+  mutate_at("Response.Answer", as.factor) %>% 
+  select(Account.Number, City.Wide.Emissions.Inventory = Response.Answer, CDP.Region)
+
+
+# joining with Cities_Responses_KPI
+Cities_Responses_KPI = left_join(Cities_Responses_KPI, 
+                                 Cities_Responses_Cleaned[ ,c("Account.Number", "City.Wide.Emissions.Inventory")],
+                                 by = "Account.Number")
+
+
+# Aggregate by answer
+Cities_Responses_Cleaned %>% 
+  group_by(City.Wide.Emissions.Inventory) %>% 
+  summarise(Nb.Organizations = n_distinct(Account.Number)) %>% 
+  mutate(Percent.Organizations = round(Nb.Organizations/sum(Nb.Organizations) * 100,2))%>% 
+  arrange(desc(Percent.Organizations)) %>% 
+  kable() %>%
+  kable_styling(bootstrap_options = c("striped", "hover"), full_width = F, font_size = 13)
+```
+
+- **city-wide emissions inventory by region**: We observe that city-wde emissions inventory reporting depending on the regions. The proportion of cities that are nit intending to have a city-wide emissions inventory is higher in Middle Easte and Africa (respectively 20% and 11%). More thatn 60% of cities located in South and West Asia  are progressing in making emissions invenotry. And 30% of cities located in Latin America are intending to undertake it in the next 2 years.
+
+```{r warning=FALSE, message=FALSE, echo = TRUE}
+Cities_Responses_Cleaned %>% 
+  group_by(CDP.Region, City.Wide.Emissions.Inventory) %>% 
+  summarise(Nb.Organizations = n_distinct(Account.Number)) %>% 
+  mutate(Percent.Organizations = round(Nb.Organizations/sum(Nb.Organizations) * 100,2)) %>% 
+  plot_ly() %>% 
+  add_trace(x = ~CDP.Region, 
+            y = ~Percent.Organizations, 
+            color = ~factor(City.Wide.Emissions.Inventory),
+            type = "bar")  %>% 
+  layout(title = "City-wide Emissions Inventory",
+         yaxis = list(title = 'Percent of answers'), 
+         xaxis = list(title = 'Regions'),
+         barmode = 'stack')
+```
+
+- **Primary protocol used for city-wide GHG emissions**: More then half of cities used Global Protocol for Community Greenhouse Gas Emissions Inventories (GPC) as methofdology for reporting their GHG emissions. More than 20% of cities didn't use an international standard for reporting the inventory of their GHG emissions.
+
+```{r warning=FALSE, message=FALSE, echo = TRUE}
+# recoding GHG.Emissions.Primary.protocol
+Cities_Responses_Cleaned = Cities_Responses %>% 
+  filter(Year.Reported.to.CDP == Year.Selected) %>% 
+  filter(Question.Number == "4.3") %>% 
+  drop_na(Response.Answer) %>% 
+  filter(Column.Name == "Primary protocol") %>% 
+  filter(Response.Answer!= "Question not applicable") %>% 
+  mutate(GHG.Emissions.Primary.protocol = fct_collapse(Response.Answer,
+                                                "GPC" = "Global Protocol for Community Greenhouse Gas Emissions Inventories (GPC)",
+                                                "International Standard for Determining Greenhouse Gas Emissions for Cities" = "International Standard for Determining Greenhouse Gas Emissions for Cities (UNEP and World Bank)",
+                                                "2006 IPCC Guidelines" = "2006 IPCC Guidelines for National Greenhouse Gas Inventories",
+                                                "ICLEI" = "U.S. Community Protocol for Accounting and Reporting of Greenhouse Gas Emissions (ICLEI)",
+                                                "Regional or country specific methodology" = "Regional or country specific methodology",
+                                                "City specific methodology" = "City specific methodology"))
+
+Ptotocol.list = c("GPC",
+                  "International Standard for Determining Greenhouse Gas Emissions for Cities",
+                  "2006 IPCC Guidelines",
+                  "ICLEI",
+                  "Regional or country specific methodology",
+                  "City specific methodology")
+
+Cities_Responses_Cleaned$GHG.Emissions.Primary.protocol[!Cities_Responses_Cleaned$GHG.Emissions.Primary.protocol %in% Ptotocol.list] = "Other"
+
+# joining with Cities_Responses_KPI
+Cities_Responses_KPI = left_join(Cities_Responses_KPI, 
+                                 Cities_Responses_Cleaned[ ,c("Account.Number", "GHG.Emissions.Primary.protocol")],
+                                 by = "Account.Number")
+
+# Table
+Cities_Responses_Cleaned %>% 
+  group_by(GHG.Emissions.Primary.protocol) %>% 
+  summarise(Nb.Organizations = n_distinct(Account.Number)) %>% 
+  mutate(Percent.Organizations = round(Nb.Organizations/sum(Nb.Organizations) * 100,2))%>% 
+  arrange(desc(Percent.Organizations)) %>% 
+  kable() %>%
+  kable_styling(bootstrap_options = c("striped", "hover"), full_width = F, font_size = 13)
+
+```
+
+
+- **GHG Emissions Evolution**: 45% of cities reporting their GHG emissions indicated that their emissions decreased compared to the last inventory.
+
+```{r warning=FALSE, message=FALSE, echo = TRUE}
+Cities_Responses_Cleaned = Cities_Responses %>% 
+  filter(Year.Reported.to.CDP == Year.Selected,
+         Question.Number == "4.8",
+         Column.Name == "Change in emissions",
+         Response.Answer != "Question not applicable") %>% 
+  drop_na(Response.Answer) %>% 
+  mutate_at("Response.Answer", as.factor) %>% 
+  select(Account.Number, GHG.Emissions.Evolution = Response.Answer)
+
+
+# joining with Cities_Responses_KPI
+Cities_Responses_KPI = left_join(Cities_Responses_KPI, 
+                                 Cities_Responses_Cleaned,
+                                 by = "Account.Number")
+
+
+# Table
+Cities_Responses_Cleaned %>% 
+  group_by(GHG.Emissions.Evolution) %>% 
+  summarise(Nb.Organizations = n_distinct(Account.Number)) %>% 
+  mutate(Percent.Organizations = round(Nb.Organizations/sum(Nb.Organizations) * 100,2))%>% 
+  arrange(desc(Percent.Organizations)) %>% 
+  kable() %>%
+  kable_styling(bootstrap_options = c("striped", "hover"), full_width = F, font_size = 13)
+```
+
+- **Consumption-based Inventory**: Only **16%** of cities reporting their GHG emissions indicated that they have a consumption-based inventory to measure emissions from consumption of goods and services by theur residents and **42%** don't intend to undertake it.
+
+```{r warning=FALSE, message=FALSE, echo = TRUE}
+Cities_Responses_Cleaned = Cities_Responses %>% 
+  filter(Year.Reported.to.CDP == Year.Selected,
+         Question.Number == "4.9",
+         Column.Name == "Response",
+         Response.Answer != "Question not applicable") %>% 
+  drop_na(Response.Answer) %>% 
+  mutate_at("Response.Answer", as.factor) %>% 
+  select(Account.Number, GHG.Emissions.Consumption = Response.Answer)
+
+# joining with Cities_Responses_KPI
+Cities_Responses_KPI = left_join(Cities_Responses_KPI, 
+                                 Cities_Responses_Cleaned,
+                                 by = "Account.Number")
+
+# Table
+Cities_Responses_Cleaned %>% 
+  group_by(GHG.Emissions.Consumption) %>% 
+  summarise(Nb.Organizations = n_distinct(Account.Number)) %>% 
+  mutate(Percent.Organizations = round(Nb.Organizations/sum(Nb.Organizations) * 100,2))%>% 
+  arrange(desc(Percent.Organizations)) %>% 
+  kable() %>%
+  kable_styling(bootstrap_options = c("striped", "hover"), full_width = F, font_size = 13)
+
+```
+
+- **External Verfication**: Only **25%** of cities reporting their GHG emissions indicated that their GHG emissions data have been externally verified or audited.
+
+```{r warning=FALSE, message=FALSE, echo = TRUE}
+Cities_Responses_Cleaned = Cities_Responses %>% 
+  filter(Year.Reported.to.CDP == Year.Selected,
+         Question.Number == "4.12",
+         Response.Answer != "Question not applicable") %>% 
+  drop_na(Response.Answer) %>% 
+  mutate_at("Response.Answer", as.factor) %>% 
+  select(Account.Number, GHG.Emissions.External.Verification = Response.Answer)
+
+# joining with Cities_Responses_KPI
+Cities_Responses_KPI = left_join(Cities_Responses_KPI, 
+                                 Cities_Responses_Cleaned,
+                                 by = "Account.Number")
+
+# Table
+Cities_Responses_Cleaned %>% 
+  group_by(GHG.Emissions.External.Verification) %>% 
+  summarise(Nb.Organizations = n_distinct(Account.Number)) %>% 
+  mutate(Percent.Organizations = round(Nb.Organizations/sum(Nb.Organizations) * 100,2))%>% 
+  arrange(desc(Percent.Organizations)) %>% 
+  kable() %>%
+  kable_styling(bootstrap_options = c("striped", "hover"), full_width = F, font_size = 13)
+```
+
+
+## Emission reduction
+
+- **Mitigation Target setting**: 25% of cities don't have a GHG emissions reduction target in place at the city level.
+
+```{r warning=FALSE, message=FALSE, echo = TRUE}
+Cities_Responses_Cleaned = Cities_Responses %>% 
+  filter(Year.Reported.to.CDP == Year.Selected,
+         Question.Number == "5.0") %>% 
+  drop_na(Response.Answer) %>% 
+  mutate_at("Response.Answer", as.factor) %>% 
+  select(Account.Number, GHG.Emissions.Reductions.Targets = Response.Answer)
+
+# joining with Cities_Responses_KPI
+Cities_Responses_KPI = left_join(Cities_Responses_KPI, 
+                                 Cities_Responses_Cleaned,
+                                 by = "Account.Number")
+
+# Table
+Cities_Responses_Cleaned %>% 
+  group_by(GHG.Emissions.Reductions.Targets) %>% 
+  summarise(Nb.Organizations = n_distinct(Account.Number)) %>% 
+  mutate(Percent.Organizations = round(Nb.Organizations/sum(Nb.Organizations) * 100,2))%>% 
+  arrange(desc(Percent.Organizations)) %>% 
+  kable() %>%
+  kable_styling(bootstrap_options = c("striped", "hover"), full_width = F, font_size = 13)
+```
+
+
+- **Mitigation Planning**: 60% of cities declared having a climate change mtitgation  or energy access plan for reducing GHG emissions.
+
+```{r warning=FALSE, message=FALSE, echo = TRUE}
+Cities_Responses_Cleaned = Cities_Responses %>% 
+  filter(Year.Reported.to.CDP == Year.Selected,
+         Question.Number == "5.5") %>% 
+  drop_na(Response.Answer) %>% 
+  mutate_at("Response.Answer", as.factor) %>% 
+  select(Account.Number, Emissions.Reductions.Mitigation.Planning = Response.Answer)
+
+# joining with Cities_Responses_KPI
+Cities_Responses_KPI = left_join(Cities_Responses_KPI, 
+                                 Cities_Responses_Cleaned,
+                                 by = "Account.Number")
+
+# Table
+Cities_Responses_Cleaned %>% 
+  group_by(Emissions.Reductions.Mitigation.Planning) %>% 
+  summarise(Nb.Organizations = n_distinct(Account.Number)) %>% 
+  mutate(Percent.Organizations = round(Nb.Organizations/sum(Nb.Organizations) * 100,2))%>% 
+  arrange(desc(Percent.Organizations)) %>% 
+  kable() %>%
+  kable_styling(bootstrap_options = c("striped", "hover"), full_width = F, font_size = 13)
+
+```
+
+
+## Opportunities
+
+The most selected opportunities for addressing climate change are: *Development of energy efficiency measures and technologies, Development of sustainable transport sector, Improved efficiency of municipal operations, and Development of waste management-sector*.
+
+```{r warning=FALSE, message=FALSE, echo = TRUE}
+Cities_Responses %>% 
+  filter(Question.Number == "6.0",
+         Year.Reported.to.CDP == Year.Selected,
+         Column.Name == "Opportunity") %>% 
+  select(Account.Number,Row.Number,Column.Number,Response.Answer) %>% 
+  drop_na(Response.Answer) %>%
+  group_by(Response.Answer) %>%
+  summarise(nb = n()) %>% 
+  mutate(Percent = round(nb/sum(nb) * 100,2)) %>% 
+  arrange(desc(nb)) %>% 
+  top_n(5) %>% 
+  kable() %>%
+  kable_styling(bootstrap_options = c("striped", "hover"), full_width = F, font_size = 13)
+
+```
+
+- **Collaboration with businesses**: More than 75% of cities reported that they collaborate in partnership with businesses in city sustainability projects.
+
+```{r warning=FALSE, message=FALSE, echo = TRUE}
+Cities_Responses_Cleaned = Cities_Responses %>% 
+  filter(Year.Reported.to.CDP == Year.Selected,
+         Question.Number == "6.2") %>% 
+  drop_na(Response.Answer) %>% 
+  mutate_at("Response.Answer", as.factor) %>% 
+  select(Account.Number, Opportunities.Collaboration = Response.Answer)
+
+# joining with Cities_Responses_KPI
+Cities_Responses_KPI = left_join(Cities_Responses_KPI, 
+                                 Cities_Responses_Cleaned,
+                                 by = "Account.Number")
+
+# Table
+Cities_Responses_Cleaned %>% 
+  group_by(Opportunities.Collaboration) %>% 
+  summarise(Nb.Organizations = n_distinct(Account.Number)) %>% 
+  mutate(Percent.Organizations = round(Nb.Organizations/sum(Nb.Organizations) * 100,2))%>% 
+  arrange(desc(Percent.Organizations)) %>% 
+  kable() %>%
+  kable_styling(bootstrap_options = c("striped", "hover"), full_width = F, font_size = 13)
+```
+
+The most reported collaboration areas are: *Energy*, *Transport*, *Waste*, and *Building/Infrastructure*.
+
+```{r warning=FALSE, message=FALSE, echo = TRUE}
+Cities_Responses %>% 
+  filter(Question.Number == "6.2a",
+         Year.Reported.to.CDP == Year.Selected,
+         Column.Name == "Collaboration area",
+         Response.Answer != "Question not applicable") %>% 
+  select(Account.Number,Row.Number,Column.Number,Collaboration.area = Response.Answer) %>% 
+  drop_na(Collaboration.area) %>%
+  group_by(Collaboration.area) %>%
+  summarise(nb = n()) %>% 
+  mutate(Percent = round(nb/sum(nb) * 100,2)) %>% 
+  arrange(desc(nb)) %>% 
+  plot_ly() %>% 
+  add_trace(y = ~factor(Collaboration.area), 
+            x = ~nb, 
+            marker = list(color = "gray"),
+            type = "bar",
+            orientation = "h")  %>% 
+  layout(title = "CIty-Businesss Collaboration areas",
+         yaxis = list(title = 'Collaboration areas', categoryorder = "array",categoryarray = ~nb),
+         xaxis = list(title = 'Number of collaborations')
+  )
+```
+
+- **Finance & Economic Opportunities**: Cities reported the difernt mitigation, adaptation, water related and resilience projects they have planned by providing details on the estimated costs and status of these projects. The analysis of the stage of project developement, we observe that **25%** of reported projects are in **scoping stage**, **16%** in **feasibility stage** and only **16%** are in **implementation sage**.
+
+```{r warning=FALSE, message=FALSE, echo = TRUE}
+Cities_Responses %>% 
+  filter(Year.Reported.to.CDP == Year.Selected,
+         Question.Number == "6.5",
+         Column.Name == "Stage of project development") %>% 
+  select(Account.Number,Row.Number,Column.Number,Project.area = Response.Answer) %>% 
+  drop_na(Project.area) %>%
+  group_by(Project.area) %>%
+  summarise(nb = n()) %>% 
+  mutate(Percent = round(nb/sum(nb) * 100,2)) %>% 
+  arrange(desc(nb)) %>% 
+  kable() %>%
+  kable_styling(bootstrap_options = c("striped", "hover"), full_width = F, font_size = 13)
+```
+
+Concerning the status of financing, **33%** of reported projects are partially funded and seeking additional funding and **45%** are not funded projects seeking for full or partial funding.
+
+```{r warning=FALSE, message=FALSE, echo = TRUE}
+Cities_Responses %>% 
+  filter(Year.Reported.to.CDP == Year.Selected,
+         Question.Number == "6.5",
+         Column.Name == "Status of financing") %>% 
+  select(Account.Number,Row.Number,Column.Number,Project.area = Response.Answer) %>% 
+  drop_na(Project.area) %>%
+  group_by(Project.area) %>%
+  summarise(nb = n()) %>% 
+  mutate(Percent = round(nb/sum(nb) * 100,2)) %>% 
+  arrange(desc(nb)) %>% 
+  top_n(3) %>% 
+  kable() %>%
+  kable_styling(bootstrap_options = c("striped", "hover"), full_width = F, font_size = 13)
+```
+
+
+## Energy
+
+- **Renewable energy/eletricity target**: 45% of cities reported having a renweable/eletricity target.
+
+```{r warning=FALSE, message=FALSE, echo = TRUE}
+Cities_Responses_Cleaned = Cities_Responses %>% 
+  filter(Year.Reported.to.CDP == Year.Selected,
+         Question.Number == "8.0") %>% 
+  drop_na(Response.Answer) %>% 
+  mutate_at("Response.Answer", as.factor) %>% 
+  select(Account.Number, Renewable.Energy.Target = Response.Answer)
+
+# joining with Cities_Responses_KPI
+Cities_Responses_KPI = left_join(Cities_Responses_KPI, 
+                                 Cities_Responses_Cleaned,
+                                 by = "Account.Number")
+
+# Table
+Cities_Responses_Cleaned %>% 
+  group_by(Renewable.Energy.Target) %>% 
+  summarise(Nb.Organizations = n_distinct(Account.Number)) %>% 
+  mutate(Percent.Organizations = round(Nb.Organizations/sum(Nb.Organizations) * 100,2))%>% 
+  arrange(desc(Percent.Organizations)) %>% 
+  kable() %>%
+  kable_styling(bootstrap_options = c("striped", "hover"), full_width = F, font_size = 13)
+```
+
+**Electricity Source Mix**:
+
+
+```{r warning=FALSE, message=FALSE, echo = TRUE}
+# Agg by answer
+Cities_Responses_Cleaned = Cities_Responses %>% 
+  filter(Question.Number == "8.1",
+         Year.Reported.to.CDP == Year.Selected,
+         Row.Name == "Electricity source",
+         Column.Name %in% c("Coal","Gas","Oil","Nuclear","Hydro","Biomass","Wind","Geothermal","Solar","Other sources")) %>% 
+  select(Account.Number, Electricity.Source = Column.Name, Percent = Response.Answer) %>% 
+  mutate_at("Percent", as.character) %>% 
+  mutate_at("Percent", as.numeric)
+
+# plot
+fig <- plot_ly() %>% 
+  add_trace(data = Cities_Responses_Cleaned,
+            y = ~Percent,
+            color = ~Electricity.Source,
+            colors = "Dark2",
+            type = "box") %>% 
+  layout(title = "Electricity Source Mix",
+         xaxis = list(title = "Electricity source"))
+fig
+```
+
+- **What are the most used electricity source?**
+
+```{r warning=FALSE, message=FALSE, echo = TRUE}
+Cities_Responses_Cleaned %>% 
+  group_by(Electricity.Source) %>% 
+  summarise(Avg.Electricity.Source.Share = round(mean(Percent, na.rm = TRUE),2)) %>% 
+  arrange(desc(Avg.Electricity.Source.Share)) %>% 
+  kable() %>%
+  kable_styling(bootstrap_options = c("striped", "hover"), full_width = F, font_size = 13)
+```
+
+
+- **Top cities by electricity source**
+
+| Electricity source | Top 3 cities |
+| ---- | -------------- |
+| Coal | City of Kuala Lumpur (100%),  City of Birmingham (100%), City of Johannesburg (99.3%) |
+| Gas | City of Juárez in Mexico (100%),  Jakarta City Government in Indonesia (100%), City of Johannesburg (99.94%), Moscow Government (99.25%) |
+| Oil | City of Chorrera in Panama (100%),  City of Rio Branco in Brazil (100%), City of Gibraltar (99.8%) |
+| Nuclear | City of Monaco (86.3%),  City of Nice (72.3%), City of Paris (71.7%) |
+| Hydro | City of Niterói in Brazil (100%),  City of Tuguegarao (100%), City of Aracaju in Brazil (100%) |
+| Biomass | City of Dar es Salaam in Tanzania (85%),  City of laipeda in Lithuania (60%), City of Temuco in Chile (53.7%) |
+| Wind | City of Lexington in USA (100%),  City of Örebro in Sweden (100%), City of Faro in Portugal (88%) |
+| Geothermal | City of Lince in Peru (60%),  City of Akureyri in Iceland (30%), City of Reykjavík in Iceland (30%) |
+| Solar | City of Manhattan Beach in USA (100%), City of Santa Monica in USA (100%), City of West Hollywood in USA (90%) |
+
+
+- **Share of Renewable energy**: Various cities reported that their electricy sources are 100% renewable (wind, hydro, solar, and geothermal). We observe that 30% of cities have more than half of their electricity source based on renewable energy.
+
+```{r warning=FALSE, message=FALSE, echo = TRUE}
+Cities_Responses_Cleaned = Cities_Responses_Cleaned %>% 
+  mutate(Electricity.Source = recode(Electricity.Source,
+                                    "Coal" = "Electricity.Source.Coal",
+                                    "Gas" = "Electricity.Source.Gas"  ,
+                                    "Oil" = "Electricity.Source.Oil"  ,
+                                    "Nuclear" = "Electricity.Source.Nuclear"  ,
+                                    "Hydro" = "Electricity.Source.Hydro"  ,
+                                    "Biomass"  = "Electricity.Source.Biomass" ,
+                                    "Wind"  = "Electricity.Source.Wind" ,
+                                    "Geothermal" =  "Electricity.Source.Geothermal" ,
+                                    "Solar"=   "Electricity.Source.Solar" ,
+                                    "Other sources" = "Electricity.Source.Other")) %>% 
+  spread(Electricity.Source, Percent) %>% 
+  mutate(Electricity.Source.Renewable = Electricity.Source.Hydro + Electricity.Source.Wind + Electricity.Source.Solar + Electricity.Source.Geothermal)
+  
+  
+# joining with Cities_Responses_KPI
+Cities_Responses_KPI = left_join(Cities_Responses_KPI, 
+                                 Cities_Responses_Cleaned,
+                                 by = "Account.Number")
+
+
+# plot
+fig <- plot_ly() %>% 
+  add_histogram(data = Cities_Responses_KPI[!is.na(Cities_Responses_KPI$Electricity.Source.Renewable), ], 
+                x = ~Electricity.Source.Renewable, 
+                marker = list(color = "gray")) %>% 
+  layout(bargap=0.1) %>% 
+  layout(title = "Share of Renewable Energy",
+         yaxis = list(title = 'Number of cities', categoryorder = "array",categoryarray = ~Electricity.Source.Renewable),
+         xaxis = list(title = 'Percent of Renewable energy'))
+
+fig
+```
+
+
+- **Energy efficiency target**: 37% of cities reported having a target to increase energy efficency
+
+```{r warning=FALSE, message=FALSE, echo = TRUE}
+Cities_Responses_Cleaned = Cities_Responses %>% 
+  filter(Year.Reported.to.CDP == Year.Selected,
+         Question.Number == "8.5") %>% 
+  drop_na(Response.Answer) %>% 
+  mutate_at("Response.Answer", as.factor) %>% 
+  select(Account.Number, Energy.Efficnecy.Target = Response.Answer)
+
+# joining with Cities_Responses_KPI
+Cities_Responses_KPI = left_join(Cities_Responses_KPI, 
+                                 Cities_Responses_Cleaned,
+                                 by = "Account.Number")
+
+# Table
+Cities_Responses_Cleaned %>% 
+  group_by(Energy.Efficnecy.Target) %>% 
+  summarise(Nb.Organizations = n_distinct(Account.Number)) %>% 
+  mutate(Percent.Organizations = round(Nb.Organizations/sum(Nb.Organizations) * 100,2))%>% 
+  arrange(desc(Percent.Organizations)) %>% 
+  kable() %>%
+  kable_styling(bootstrap_options = c("striped", "hover"), full_width = F, font_size = 13)
+```
+
+
+## Transport
+
+
+- **Distribution of transport mode share**:
+```{r warning=FALSE, message=FALSE, echo = TRUE}
+Cities_Responses_Cleaned = Cities_Responses %>% 
+  filter(Year.Reported.to.CDP == Year.Selected,
+         Question.Number == "10.1",
+         Response.Answer != "Question not applicable") %>% 
+  select(Account.Number, Transport.Mode.Passenger = Column.Name, Percent = Response.Answer) %>% 
+  mutate_at("Percent", as.character) %>% 
+  mutate_at("Percent", as.numeric)
+
+
+# plot
+fig <- plot_ly() %>% 
+  add_trace(data = Cities_Responses_Cleaned,
+            y = ~Percent,
+            color = ~Transport.Mode.Passenger,
+            colors = "Dark2",
+            type = "box") %>% 
+  layout(title = "Electricity Source Mix",
+         xaxis = list(title = "Electricity source"))
+fig
+```
+
+
+Private motorized transport is the most adopted transport mode with **50%** of mode share in average. 
+
+```{r warning=FALSE, message=FALSE, echo = TRUE}
+Cities_Responses_Cleaned %>% 
+  group_by(Transport.Mode.Passenger) %>% 
+  summarise(Avg.Transport.Mode.Passenger = round(mean(Percent, na.rm = TRUE),2)) %>% 
+  arrange(desc(Avg.Transport.Mode.Passenger)) %>% 
+  kable() %>%
+  kable_styling(bootstrap_options = c("striped", "hover"), full_width = F, font_size = 12)
+```
+
+- Top 3 cities with high percent of cycling are: City of Del Carmen (Philippines), city of Providencia (Chile), and City of Rotterdam (Netherlands)
+
+```{r warning=FALSE, message=FALSE, echo = TRUE}
+# recoding datset
+Cities_Responses_Cleaned = Cities_Responses_Cleaned %>% 
+  mutate(Transport.Mode.Passenger = fct_collapse( Transport.Mode.Passenger,
+                                      "Transport.Mode.Passenger.Private.motorized"="Private motorized transport",
+                                      "Transport.Mode.Passenger.Walking"=  "Walking",
+                                      "Transport.Mode.Passenger.Public" = c("Buses (including BRT)",
+                                                                            "Rail/Metro/Tram"),
+                                      "Transport.Mode.Passenger.Other" = c("Taxis or For Hire Vehicles",
+                                                                           "Other", "Micro-Mobility",
+                                                                           "Ferries/ River boats"),
+                                      "Transport.Mode.Passenger.Cycling"= "Cycling")) %>% 
+  group_by(Account.Number, Transport.Mode.Passenger) %>% 
+  summarise(Percent = sum(Percent)) %>% 
+  spread(Transport.Mode.Passenger, Percent) 
+
+# joining with Cities_Responses_KPI
+Cities_Responses_KPI = left_join(Cities_Responses_KPI, 
+                                 Cities_Responses_Cleaned,
+                                 by = "Account.Number")
+
+# show table
+Cities_Responses_KPI %>%  
+  select(Organization, City, Country, Transport.Mode.Passenger.Cycling) %>% 
+  arrange(desc(Transport.Mode.Passenger.Cycling)) %>% 
+  top_n(3) %>% 
+  kable() %>%
+  kable_styling(bootstrap_options = c("striped", "hover"), full_width = F, font_size = 13) 
+```
+
+- Top 3 cities with high percent of public transport are: City of Comas (Peru), city of Hong Kong, and City of San Isidro (Peru)
+
+```{r warning=FALSE, message=FALSE, echo = TRUE}
+Cities_Responses_KPI %>%  
+  select(Organization, City, Country, Transport.Mode.Passenger.Public) %>% 
+  arrange(desc(Transport.Mode.Passenger.Public)) %>% 
+  top_n(3) %>% 
+  kable() %>%
+  kable_styling(bootstrap_options = c("striped", "hover"), full_width = F, font_size = 13) 
+```
+
+
+
+- **Low/zero-emission zone in the city**: Only **13%** of cities reported having a low or zero emission zone.
+
+```{r warning=FALSE, message=FALSE, echo = TRUE}
+# subset dataset
+Cities_Responses_Cleaned = Cities_Responses %>% 
+  filter(Year.Reported.to.CDP == Year.Selected,
+         Question.Number == "10.7") %>% 
+  drop_na(Response.Answer) %>% 
+  mutate_at("Response.Answer", as.factor) %>% 
+  select(Account.Number, Low.Zero.Emission.Zone = Response.Answer)
+
+# joining with Cities_Responses_KPI
+Cities_Responses_KPI = left_join(Cities_Responses_KPI, 
+                                 Cities_Responses_Cleaned,
+                                 by = "Account.Number")
+
+# Table
+Cities_Responses_Cleaned %>% 
+  group_by(Low.Zero.Emission.Zone) %>% 
+  summarise(Nb.Organizations = n_distinct(Account.Number)) %>% 
+  mutate(Percent.Organizations = round(Nb.Organizations/sum(Nb.Organizations) * 100,2))%>% 
+  arrange(desc(Percent.Organizations)) %>% 
+  kable() %>%
+  kable_styling(bootstrap_options = c("striped", "hover"), full_width = F, font_size = 13) 
+```
+
+## Food
+
+- **Sustainable food policies**: 50% of cities reported having policies related tp food cosumption
+
+```{r warning=FALSE, message=FALSE, echo = TRUE}
+# subset data
+Cities_Responses_Cleaned = Cities_Responses %>% 
+  filter(Year.Reported.to.CDP == Year.Selected,
+         Question.Number == "12.3",
+         Column.Name == "Response")%>% 
+  drop_na(Response.Answer) %>% 
+  mutate_at("Response.Answer", as.factor) %>% 
+  select(Account.Number, Food.Consumption.Policies = Response.Answer)
+
+
+# joining with Cities_Responses_KPI
+Cities_Responses_KPI = left_join(Cities_Responses_KPI, 
+                                 Cities_Responses_Cleaned,
+                                 by = "Account.Number")
+
+# Show Table
+Cities_Responses_Cleaned %>% 
+  group_by(Food.Consumption.Policies) %>% 
+  summarise(Nb.Organizations = n_distinct(Account.Number)) %>% 
+  mutate(Percent.Organizations = round(Nb.Organizations/sum(Nb.Organizations) * 100,2))%>% 
+  arrange(desc(Percent.Organizations)) %>% 
+  kable() %>%
+  kable_styling(bootstrap_options = c("striped", "hover"), full_width = F, font_size = 13)
+```
+
+- **Actions to increase access to sustainable food**
+
+A few cities have implemened actions to increase access to sustainable food especially by limiting advertising high carbon food and taxing high carbon food.
+
+```{r warning=FALSE, message=FALSE, echo = TRUE}
+Cities_Responses %>% 
+  filter(Year.Reported.to.CDP == Year.Selected,
+         Question.Number == "12.4",
+         # Row.Number == 1,
+         Column.Name == "Action implemented",
+         Response.Answer != "Question not applicable") %>% 
+  mutate_at("Row.Number", as.character) %>% 
+  mutate(Action.Type = recode(Row.Number,
+                                      "1" = "Subsidizing Fresh fruits/vegetables",
+                                      "2" = "Taxing High Carbon Food" ,
+                                      "3" = "Limiting advertising High Carbon Food" ,
+                                      "4" = "Incentivizing frech vegetables vendor locations")) %>% 
+  group_by(Response.Answer, Action.Type) %>% 
+  summarise(Nb.Organizations = n_distinct(Account.Number)) %>% 
+  mutate(Percent.Organizations = round(Nb.Organizations/sum(Nb.Organizations) * 100,2)) %>% 
+  plot_ly() %>% 
+  add_trace(x = ~Action.Type ,
+            y = ~Nb.Organizations,
+            color = ~Response.Answer,
+            colors = "Dark2",
+            type = "bar") %>% 
+  layout(title = "Actions to increase access to sustainable foods",
+         yaxis = list(title = 'Number of organizations'))
+
+```
+
+
+
+## Water Security
+
+- **Water supply**: The majority of cities has potable water supply services to more than 90% of their population (60% of cities reported having potable water supply services to 100% of their population).
+
+```{r warning=FALSE, message=FALSE, echo = TRUE}
+Cities_Responses_Cleaned = Cities_Responses %>% 
+  filter(Year.Reported.to.CDP == Year.Selected,
+         Question.Number == "14.1") %>% 
+  select(Account.Number, Potable.Water.Supply.Percent = Response.Answer) %>% 
+  mutate_at("Potable.Water.Supply.Percent", as.character) %>% 
+  mutate_at("Potable.Water.Supply.Percent", as.numeric) %>% 
+  drop_na(Potable.Water.Supply.Percent) 
+
+# plot
+fig <- plot_ly() %>% 
+  add_histogram(data = Cities_Responses_Cleaned, 
+                x = ~Potable.Water.Supply.Percent, 
+                marker = list(color = "gray")) %>% 
+  layout(bargap=0.1) %>% 
+  layout(showlegend = FALSE)
+fig
+```
+
+The table below presents cities that reported lowest percent of population with potable water supply service:
+
+```{r warning=FALSE, message=FALSE, echo = TRUE}
+# joining with Cities_Responses_KPI
+Cities_Responses_KPI = left_join(Cities_Responses_KPI, 
+                                 Cities_Responses_Cleaned,
+                                 by = "Account.Number")
+
+
+# Table
+Cities_Responses_KPI %>%  
+  select(Organization, City, Country, Potable.Water.Supply.Percent) %>% 
+  arrange(Potable.Water.Supply.Percent) %>% 
+  filter(Potable.Water.Supply.Percent > 1) %>% 
+  top_n(-5) %>% 
+  kable() %>%
+  kable_styling(bootstrap_options = c("striped", "hover"), full_width = F, font_size = 13) 
+```
+
+
+- **Water management**: 48% of cities reported having a publicly available Water Resource Management Strategy.
+
+```{r warning=FALSE, message=FALSE, echo = TRUE}
+# Subset data
+Cities_Responses_Cleaned = Cities_Responses %>% 
+  filter(Year.Reported.to.CDP == Year.Selected,
+         Question.Number == "14.4") %>% 
+  drop_na(Response.Answer) %>% 
+  mutate_at("Response.Answer", as.factor) %>% 
+  select(Account.Number, Water.Resource.Management.strategy = Response.Answer)
+
+# joining with Cities_Responses_KPI
+Cities_Responses_KPI = left_join(Cities_Responses_KPI, 
+                                 Cities_Responses_Cleaned,
+                                 by = "Account.Number")
+
+# Table
+Cities_Responses_Cleaned %>% 
+  group_by(Water.Resource.Management.strategy) %>% 
+  summarise(Nb.Organizations = n_distinct(Account.Number)) %>% 
+  mutate(Percent.Organizations = round(Nb.Organizations/sum(Nb.Organizations) * 100,2))%>% 
+  arrange(desc(Percent.Organizations)) %>% 
+  kable() %>%
+  kable_styling(bootstrap_options = c("striped", "hover"), full_width = F, font_size = 13) 
+
+```
+
+# City KPI Geovisualisation
+
+```{r warning=FALSE, message=FALSE, echo = TRUE}
+# load data
+City_Location = read.csv("CDP-Cities-goegraphical-coordinates.csv")
+
+# join coordinates with city kpi
+Cities_Responses_KPI_Location = left_join(Cities_Responses_KPI,
+                                          City_Location[ ,c("Account.Number","lat","long","Country.Code.3")],
+                                          by = "Account.Number")
+
+```
+
+
+## Mapping Risk assessment Actions
+
+```{r warning=FALSE, message=FALSE, echo = TRUE}
+# plot map Risk.Assessment.Actions
+
+Cities_Responses_KPI_Location = Cities_Responses_KPI_Location %>% 
+  mutate_at("Risk.Assessment.Actions", as.character)
+
+pal <- colorFactor(c("green","deepskyblue","blue","red","gray50","black"),
+                   levels =unique(Cities_Responses_KPI_Location$Risk.Assessment.Actions))
+
+labels <- sprintf(
+  "<strong>%s</strong><br/><strong>%s</strong><br/>",
+  Cities_Responses_KPI_Location$Organization, Cities_Responses_KPI_Location$Risk.Assessment.Actions
+) %>% 
+  lapply(htmltools::HTML)
+
+leaflet(data = Cities_Responses_KPI_Location, height = 400, width = "100%") %>% 
+  addTiles() %>%
+  addCircleMarkers(~long, ~lat, 
+                   radius = 4,
+                   color = ~pal(Risk.Assessment.Actions),
+                   stroke = FALSE,
+                   fillOpacity = 0.7,
+                   popup = ~as.character(City), 
+                   label = labels) %>% 
+  addLegend(pal = pal, values = ~Risk.Assessment.Actions, opacity = 0.9, 
+            title = "Risk Assessment Actions",
+            position = "bottomright",
+            labFormat = labelFormat(suffix = " "))
+```
+
+## Mapping Emissions Reductions Mitigation Planning
+
+```{r warning=FALSE, message=FALSE, echo = TRUE}
+# plot map Emissions.Reductions.Mitigation.Planning
+
+Cities_Responses_KPI_Location = Cities_Responses_KPI_Location %>% 
+  mutate_at("Emissions.Reductions.Mitigation.Planning", as.character)
+
+pal <- colorFactor(c("green","gray50","blue","red","deepskyblue","black"),
+                   levels =unique(Cities_Responses_KPI_Location$Emissions.Reductions.Mitigation.Planning))
+
+labels <- sprintf(
+  "<strong>%s</strong><br/><strong>%s</strong><br/>",
+  Cities_Responses_KPI_Location$Organization, Cities_Responses_KPI_Location$Emissions.Reductions.Mitigation.Planning
+) %>% 
+  lapply(htmltools::HTML)
+
+leaflet(data = Cities_Responses_KPI_Location, height = 400, width = "100%") %>% 
+  addTiles() %>%
+  addCircleMarkers(~long, ~lat, 
+                   radius = 4,
+                   color = ~pal(Emissions.Reductions.Mitigation.Planning),
+                   stroke = FALSE,
+                   fillOpacity = 0.7,
+                   popup = ~as.character(City), 
+                   label = labels) %>% 
+  addLegend(pal = pal, values = ~Emissions.Reductions.Mitigation.Planning, opacity = 0.9, 
+            title = "Emissions Reductions Mitigation Planning",
+            position = "bottomright",
+            labFormat = labelFormat(suffix = " "))
+```
+
+
+## Mapping Renewable Energy Target
+
+```{r warning=FALSE, message=FALSE, echo = TRUE}
+Cities_Responses_KPI_Location = Cities_Responses_KPI_Location %>% 
+  mutate_at("Renewable.Energy.Target", as.character)
+
+pal <- colorFactor(c("green","blue","black","red","deepskyblue", "gray50"),
+                   levels =unique(Cities_Responses_KPI_Location$Renewable.Energy.Target))
+
+labels <- sprintf(
+  "<strong>%s</strong><br/><strong>%s</strong><br/>",
+  Cities_Responses_KPI_Location$Organization, Cities_Responses_KPI_Location$Renewable.Energy.Target
+) %>% 
+  lapply(htmltools::HTML)
+
+leaflet(data = Cities_Responses_KPI_Location, height = 400, width = "100%") %>% 
+  addTiles() %>%
+  addCircleMarkers(~long, ~lat, 
+                   radius = 4,
+                   color = ~pal(Renewable.Energy.Target),
+                   stroke = FALSE,
+                   dashArray = "5",
+                   weight = 5,
+                   fillOpacity = 0.7,
+                   popup = ~as.character(City), 
+                   label = labels) %>% 
+  addLegend(pal = pal, values = ~Renewable.Energy.Target, opacity = 0.9, 
+            title = "Renewable Energy Target",
+            position = "bottomright",
+            labFormat = labelFormat(suffix = " "))
+```
+
+## Water Resource Management Strategy
+
+```{r}
+
+Cities_Responses_KPI_Location = Cities_Responses_KPI_Location %>% 
+  mutate_at("Water.Resource.Management.strategy", as.character)
+
+pal <- colorFactor(c("green","blue","black","red","deepskyblue", "gray50"),
+                   levels =unique(Cities_Responses_KPI_Location$Water.Resource.Management.strategy))
+
+labels <- sprintf(
+  "<strong>%s</strong><br/><strong>%s</strong><br/>",
+  Cities_Responses_KPI_Location$Organization, Cities_Responses_KPI_Location$Water.Resource.Management.strategy
+) %>% 
+  lapply(htmltools::HTML)
+
+leaflet(data = Cities_Responses_KPI_Location, height = 400, width = "100%") %>% 
+  addTiles() %>%
+  addCircleMarkers(~long, ~lat, 
+                   radius = 4,
+                   color = ~pal(Water.Resource.Management.strategy),
+                   stroke = FALSE,
+                   dashArray = "5",
+                   weight = 5,
+                   fillOpacity = 0.7,
+                   popup = ~as.character(City), 
+                   label = labels) %>% 
+  addLegend(pal = pal, values = ~Water.Resource.Management.strategy, opacity = 0.9, 
+            title = "Water Resource Management strategy",
+            position = "bottomright",
+            labFormat = labelFormat(suffix = " "))
+```
+
+## Food Consumption Policies
+
+```{r}
+
+Cities_Responses_KPI_Location = Cities_Responses_KPI_Location %>% 
+  mutate_at("Food.Consumption.Policies", as.character)
+
+pal <- colorFactor(c("green","blue","black","red","deepskyblue", "gray50"),
+                   levels =unique(Cities_Responses_KPI_Location$Food.Consumption.Policies))
+
+labels <- sprintf(
+  "<strong>%s</strong><br/><strong>%s</strong><br/>",
+  Cities_Responses_KPI_Location$Organization, Cities_Responses_KPI_Location$Food.Consumption.Policies
+) %>% 
+  lapply(htmltools::HTML)
+
+leaflet(data = Cities_Responses_KPI_Location, height = 400, width = "100%") %>% 
+  addTiles() %>%
+  addCircleMarkers(~long, ~lat, 
+                   radius = 4,
+                   color = ~pal(Food.Consumption.Policies),
+                   stroke = FALSE,
+                   dashArray = "5",
+                   weight = 5,
+                   fillOpacity = 0.7,
+                   popup = ~as.character(City), 
+                   label = labels) %>% 
+  addLegend(pal = pal, values = ~Food.Consumption.Policies, opacity = 0.9, 
+            title = "Food Consumption Policies",
+            position = "bottomright",
+            labFormat = labelFormat(suffix = " "))
+```
+
+# Conclusion
+
+## Data exploration
+
+The objective of this analysis is t provide some insights and descritive statistics of cities disclosure data. We processed the data in order to provide aggregated tables and visualization enabling extracting the main trends from cities' responses. The analysis enabled us to better understand and qualify cities' performances in implementing actions for reducing their climate impacts and vulnerability.
+
+## KPI dataset generation
+
+This exploratory analysis generated a dataset that we called: "Cities_Responses_KPI_Location". This dataset contains KPIs extracted directly from raw data and reliable location coordinates that we can use for producing geo-visulaization. 
+
+This dataset may be used further by other Kagglers in order to perform more specific analysis such as cities' clustering.
+
+```{r warning=FALSE, message=FALSE, echo = TRUE}
+# show data
+Cities_Responses_KPI_Location %>%  
+  kable() %>%
+  kable_styling(bootstrap_options = c("striped", "hover"), full_width = F, font_size = 13) %>% 
+  scroll_box(width = "100%", height = "400px")
+
+# Save output table
+write.csv(Cities_Responses_KPI_Location, "CDP-Cities-KPI.csv")
+
+```
